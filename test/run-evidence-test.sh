@@ -24,13 +24,14 @@
 # is missing, run `sam build && sam deploy` first.
 #
 # Usage:
-#   ./test/run-evidence-test.sh [--wait-review SECONDS]
+#   ./test/run-evidence-test.sh [--profile PROFILE] [--wait-review SECONDS]
 #
 # Env overrides:
 #   FUNCTION_NAME (default durable-otel-sample)
 #   ALIAS         (default live)
 #   REGION        (default us-east-1)   # NOTE: stack lives in us-east-1
 #   DOC_ID        (default test-doc-001)
+#   AWS_PROFILE   (default none; or pass --profile)
 
 set -euo pipefail
 
@@ -40,10 +41,12 @@ REGION="${REGION:-us-east-1}"
 DOC_ID="${DOC_ID:-test-doc-001}"
 LOG_GROUP="/aws/lambda/${FUNCTION_NAME}"
 WAIT_REVIEW=5   # seconds to keep the human-review span open (raise for a bigger gap)
+PROFILE="${AWS_PROFILE:-}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --wait-review) WAIT_REVIEW="$2"; shift 2 ;;
+    --profile) PROFILE="$2"; shift 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -53,12 +56,15 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 EVID="${SCRIPT_DIR}/evidence/${STAMP}"
 mkdir -p "$EVID"
 AWS=(aws --region "$REGION")
+if [ -n "$PROFILE" ]; then
+  AWS+=(--profile "$PROFILE")
+fi
 
 log() { printf '\033[1;34m[%s]\033[0m %s\n' "$(date +%H:%M:%S)" "$*"; }
 fail() { printf '\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
-log "Region=$REGION Function=$FUNCTION_NAME Alias=$ALIAS  ->  evidence/${STAMP}/"
+log "Region=$REGION Function=$FUNCTION_NAME Alias=$ALIAS Profile=${PROFILE:-<default>}  ->  evidence/${STAMP}/"
 
 # 0. Preconditions (read-only) --------------------------------------------------
 log "Checking caller identity and that the '$ALIAS' alias exists (read-only)..."
