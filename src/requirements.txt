@@ -1,0 +1,2 @@
+aws-durable-execution-sdk-python>=1.7.0
+aws-durable-execution-sdk-python-otel>=0.3.0

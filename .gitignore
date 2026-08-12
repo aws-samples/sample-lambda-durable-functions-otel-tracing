@@ -1,0 +1,14 @@
+# SAM build artifacts
+.aws-sam/
+
+# Lambda invoke output
+response.json
+
+# Locally generated test evidence (contains AWS account IDs / caller identity)
+test/evidence/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/

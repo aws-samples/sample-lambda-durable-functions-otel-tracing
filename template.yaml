@@ -1,0 +1,42 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Sample durable function instrumented with the OpenTelemetry plugin for the AWS Durable Execution SDK
+
+Globals:
+  Function:
+    Runtime: python3.13
+    Timeout: 900
+    MemorySize: 512
+
+Resources:
+  DurableOtelTestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: durable-otel-sample
+      Handler: index.handler
+      CodeUri: src/
+      AutoPublishAlias: live
+      Tracing: Active
+      Layers:
+        - !Sub arn:aws:lambda:${AWS::Region}:901920570463:layer:aws-otel-python-amd64-ver-1-25-0:1
+      Environment:
+        Variables:
+          AWS_LAMBDA_EXEC_WRAPPER: /opt/otel-instrument
+      Policies:
+        - AWSXRayDaemonWriteAccess
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - lambda:SendDurableExecutionCallbackSuccess
+              Resource: '*'
+      DurableConfig:
+        ExecutionTimeout: 900
+
+Outputs:
+  FunctionName:
+    Description: Function name (use for invoke and callback commands)
+    Value: !Ref DurableOtelTestFunction
+  FunctionArn:
+    Description: Function ARN
+    Value: !GetAtt DurableOtelTestFunction.Arn
