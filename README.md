@@ -2,6 +2,8 @@
 
 A minimal, deployable AWS SAM sample that instruments a **Lambda durable function** with the [OpenTelemetry plugin for the AWS Durable Execution SDK](https://pypi.org/project/aws-durable-execution-sdk-python-otel/) (`aws-durable-execution-sdk-python-otel`). It shows how a single durable execution that spans **multiple Lambda invocations** is unified into **one distributed trace**, with per-operation spans and automatically correlated logs.
 
+> ⚠️ **This is sample code, for non-production usage.** You should work with your security and legal teams to meet your organizational security, regulatory and compliance requirements before deployment. In particular, the human-approval gate and callback token shown here are **illustrative** — see [Security Considerations](#security-considerations) before adapting any of this for real workloads.
+
 This is the companion code for the AWS blog post *"Observability for durable workflows: tracing AWS Lambda durable functions with OpenTelemetry."*
 
 ## Why tracing for durable functions?
@@ -23,7 +25,7 @@ The execution runs across **at least two Lambda invocations**: the first runs `e
 ## Project Structure
 
 ```
-SourceCode/
+.
 ├── README.md                    # This file
 ├── LICENSE                      # MIT-0
 ├── CONTRIBUTING.md              # Contribution + security-reporting guidelines
@@ -200,7 +202,43 @@ def handler(event: dict, context: DurableContext) -> dict:
 The function's execution role (see `Policies` in `template.yaml`) grants:
 
 - **`AWSXRayDaemonWriteAccess`** (managed policy) — or the equivalent `xray:PutTraceSegments` and `xray:PutTelemetryRecords` — required to export traces.
-- **`lambda:SendDurableExecutionCallbackSuccess`** — for resuming callback-based waits.
+- **`lambda:SendDurableExecutionCallbackSuccess`** — for resuming callback-based waits, **scoped to this function's durable-execution ARN** (`:function:${DurableOtelTestFunction}:*`) rather than `*`. See [Security Considerations](#security-considerations) — in this sample the operator's CLI sends the callback, so you may be able to remove this grant from the execution role entirely.
+
+## Security Considerations
+
+**This is sample code, for non-production usage.** You should work with your security and legal teams to meet your organizational security, regulatory and compliance requirements before deployment. The items below are the sharpest edges to review before adapting these patterns.
+
+### The callback ID is a bearer capability
+
+This is the most important trade-off in the sample. The handler writes the callback ID to CloudWatch Logs, and the README documents reading it back out of the logs as the way to resume the execution:
+
+```python
+# src/index.py
+logger.info(f"=== CALLBACK ID FOR MANUAL RESUME: {callback_id} ===")
+```
+
+```bash
+# README "Test" section
+aws logs filter-log-events --log-group-name /aws/lambda/durable-otel-sample \
+  --filter-pattern "CALLBACK ID"
+```
+
+For a self-contained demo that is a reasonable channel. **In production it is not.** Anyone who holds that callback ID and the `lambda:SendDurableExecutionCallbackSuccess` permission decides `approved: true` and writes the `reviewer` field to any value they like — and `logs:FilterLogEvents` is typically granted far more widely than approval authority. That makes "read the token from logs" an authorization bypass waiting to happen.
+
+For a real approval workflow:
+
+- **Deliver the callback ID to the approver over an authenticated channel** (e.g., an authenticated web action, a signed email link, a task in an approval system) — **never to logs**.
+- **Derive the approver's identity from that authenticated channel**, not from a caller-supplied field like `reviewer` in the callback result.
+- Treat the callback ID as a secret with a short lifetime.
+
+### Hardening checklist
+
+- **IAM least privilege** — Scope every policy to specific resource ARNs. This sample scopes `SendDurableExecutionCallbackSuccess` to the function's durable-execution ARN; confirm whether your resume path needs the grant on the execution role at all (in this sample the operator's CLI sends the callback, not the function).
+- **Input validation** — Validate all event payloads and callback results before acting on them. This sample trusts the `approved` and `reviewer` fields as-is.
+- **Log access control** — Restrict who can read the function's log group. Callback IDs and other sensitive values may appear in logs.
+- **Network controls** — If the function accesses private resources, deploy it in a VPC with appropriate security groups.
+- **Dependency auditing** — Pin dependency versions (this sample pins with `==`) and audit for known vulnerabilities before deploying.
+- **Secrets management** — Never hardcode credentials; use AWS Secrets Manager or Parameter Store.
 
 ## Cost
 

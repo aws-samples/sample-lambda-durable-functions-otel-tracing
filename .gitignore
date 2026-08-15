@@ -12,3 +12,10 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Threat model exports (contain account-specific data)
+.threatmodel/
+.threat-composer/
+
+# Threat Composer session data
+.threat-composer/
