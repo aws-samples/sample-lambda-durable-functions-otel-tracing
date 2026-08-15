@@ -1,5 +1,2 @@
-# Pinned to exact versions for reproducible builds. A 0.x package carries no
-# compatibility guarantee, so an open range (>=) could pull in behavior changes
-# under a reader who runs `sam build` later.
 aws-durable-execution-sdk-python==1.7.0
 aws-durable-execution-sdk-python-otel==0.3.0
