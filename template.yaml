@@ -31,21 +31,6 @@ Resources:
           AWS_LAMBDA_EXEC_WRAPPER: /opt/otel-instrument
       Policies:
         - AWSXRayDaemonWriteAccess
-        # Scoped to this function's durable-execution callbacks only (least privilege).
-        # Lambda authorizes callback requests against the durable execution ARN:
-        # https://docs.aws.amazon.com/lambda/latest/dg/durable-security.html
-        # NOTE: in this sample the *operator's CLI* sends the callback, not the
-        # function itself (src/index.py only logs the command). If your resume
-        # path never calls SendDurableExecutionCallbackSuccess from within the
-        # function, this grant can be removed from the execution role entirely.
-        - Version: '2012-10-17'
-          Statement:
-            - Effect: Allow
-              Action:
-                - lambda:SendDurableExecutionCallbackSuccess
-              # Literal function name (not !Ref) to avoid a Function->Role->Function
-              # circular dependency; matches the hardcoded FunctionName above.
-              Resource: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:durable-otel-sample:*
       DurableConfig:
         ExecutionTimeout: 900
 
