@@ -55,6 +55,10 @@ def handler(event: dict, context: DurableContext) -> dict:
     def submit_for_review(callback_id: str, ctx: WaitForCallbackContext) -> None:
         # Callback ID is enough to resume — the command does NOT accept --function-name
         logger.info(f"=== CALLBACK ID FOR MANUAL RESUME: {callback_id} ===")
+        logger.info("In production the callback ID goes to the approver over")
+        logger.info(" an authenticated channel, never to logs, and the")
+        logger.info(" approver's identity comes from that channel")
+        logger.info(" rather than from a caller-supplied field.")
         logger.info(
             f"aws lambda send-durable-execution-callback-success "
             f"--cli-binary-format raw-in-base64-out "
