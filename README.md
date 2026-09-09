@@ -10,7 +10,10 @@ This is the companion code for the AWS blog post *"Observability for durable wor
 
 Durable functions build resilient, multi-step workflows that checkpoint progress and recover from failures through replay. A single execution can suspend (e.g., waiting on a human approval) and resume **hours or days later** in a brand-new Lambda invocation. By default each invocation emits its own trace, so the end-to-end view of one logical workflow is **fragmented** across disconnected traces — forcing operators to stitch signals together by hand.
 
-The OTel plugin derives a **deterministic trace ID** from the X-Ray header, so every invocation of the same execution shares one trace. Each `step`, `wait`, and `wait_for_callback` becomes its own span, and every log record is stamped with `traceId` / `spanId`.
+The OTel plugin uses the propagated X-Ray root when one is available and falls
+back to a deterministic execution trace ID otherwise. Each `step`, `wait`, and
+`wait_for_callback` becomes its own span, and every log record is stamped with
+`traceId` / `spanId`.
 
 ## Overview
 
@@ -144,10 +147,13 @@ A successful run reports a single unified trace and a span tree like the one bel
 - Response Time (compute only): 0.014s  ✅ (compute ≪ wall-clock)
 
 ## 2. Span-per-operation           # both invocations, under one trace
-- invocation
+- Workflow
+- Invocation
     - extract-text     (~1.0s)
     - summarize        (~2.0s)
     - human-review     (wait_for_callback)
+- Invocation
+    - human-review     (continuation)
     - publish          (~0.5s)
 
 ## 3. Log correlation
@@ -162,13 +168,24 @@ If instead you see `Named operation spans found: (none)` or all log records shar
 
 | Setting | Value | Purpose |
 |---------|-------|---------|
-| `Tracing` | `Active` | Enables X-Ray; the plugin derives the deterministic trace ID from `_X_AMZN_TRACE_ID` |
-| `Layers` | ADOT Python layer `aws-otel-python-amd64-ver-1-25-0:1` | Exports OTel traces from the function |
+| `Tracing` | `Active` | Enables X-Ray and supplies propagated trace context to the plugin |
+| `AdotLayerArn` | ADOT release `v0.19.0` (`AWSOpenTelemetryDistroPython:30` in `us-east-1`) | Supplies OpenTelemetry 1.44.0 and exports traces |
 | `AWS_LAMBDA_EXEC_WRAPPER` | `/opt/otel-instrument` | ADOT auto-instrumentation entrypoint |
+| `OTEL_AWS_APPLICATION_SIGNALS_ENABLED` | `false` | Keeps this X-Ray-only sample from requiring the Application Signals policy |
 | `DurableConfig.ExecutionTimeout` | `900` | Enables durable mode |
 | `AutoPublishAlias` | `live` | IaC-managed version + stable qualified ARN |
 
-> Pin the ADOT layer version in production to avoid unexpected behavior from automatic version changes. See the [ADOT Lambda layer ARNs](https://aws-otel.github.io/docs/getting-started/lambda/lambda-python) for the latest version and architecture.
+The default `AdotLayerArn` is the `us-east-1` ARN from the latest ADOT Python
+instrumentation release. For another region or architecture, pass that
+release's matching ARN:
+
+```bash
+sam deploy --parameter-overrides AdotLayerArn="<REGIONAL_LAYER_ARN>"
+```
+
+Pin the ARN in production to avoid unexpected changes. See the
+[ADOT Python instrumentation releases](https://github.com/aws-observability/aws-otel-python-instrumentation/releases)
+for the regional layer table and bundled OpenTelemetry versions.
 
 ### Plugin options (not exercised by this sample)
 
@@ -178,7 +195,7 @@ Options are passed via an `OtelPluginConfig` object:
 - `InvocationOtelPlugin(OtelPluginConfig(context_extractor=w3c_client_context_extractor))` — cross-service W3C context propagation
 - Supply a custom `TracerProvider` via `OtelPluginConfig(tracer_provider=...)`
 - `ExecutionOtelPlugin` is also available — same execution ancestor, but parents operation spans under Workflow instead of Invocation
-- Control trace volume with standard OpenTelemetry sampling (`OTEL_TRACES_SAMPLER`); this sample samples 100%
+- Control trace volume with standard OpenTelemetry sampling (`OTEL_TRACES_SAMPLER`). When Lambda supplies an explicit X-Ray sampling decision, the plugin preserves it.
 
 ## Implementation Details
 
@@ -198,14 +215,18 @@ def handler(event: dict, context: DurableContext) -> dict:
 
 - **Named operations** — each `context.step()` / `context.wait_for_callback()` passes a `name`, which becomes the span name in traces.
 - **Small `time.sleep()` calls** in the steps give each span a visible duration in the trace (demo only); they are not required by the plugin.
-- **Replay-aware** — during replay, the plugin identifies replayed operations and does not emit duplicate spans; only new operations produce new spans.
+- **Replay-aware** — completed work is not re-executed, while operations that finish in a later invocation emit correlated continuation spans.
 
 ## IAM Permissions Required
 
 The function's execution role (see `Policies` in `template.yaml`) grants:
 
+- **`AWSLambdaBasicDurableExecutionRolePolicy`** — CloudWatch Logs plus the checkpoint and execution-state permissions required by durable functions.
 - **`AWSXRayDaemonWriteAccess`** (managed policy) — or the equivalent `xray:PutTraceSegments` and `xray:PutTelemetryRecords` — required to export traces.
-- **`lambda:SendDurableExecutionCallbackSuccess`** — for resuming callback-based waits, **scoped to this function's durable-execution ARN** (`:function:${DurableOtelTestFunction}:*`) rather than `*`. See [Security Considerations](#security-considerations) — in this sample the operator's CLI sends the callback, so you may be able to remove this grant from the execution role entirely.
+
+The function does not send its own callback, so its execution role does not
+receive `lambda:SendDurableExecutionCallbackSuccess`. The operator or approval
+service that resumes the execution needs that permission separately.
 
 ## Security Considerations
 
@@ -236,7 +257,7 @@ For a real approval workflow:
 
 ### Hardening checklist
 
-- **IAM least privilege** — Scope every policy to specific resource ARNs. This sample scopes `SendDurableExecutionCallbackSuccess` to the function's durable-execution ARN; confirm whether your resume path needs the grant on the execution role at all (in this sample the operator's CLI sends the callback, not the function).
+- **IAM least privilege** — Scope every policy to specific resource ARNs. Grant `SendDurableExecutionCallbackSuccess` to the operator or approval service that performs the resume, not to the function role unless the function itself genuinely needs it.
 - **Input validation** — Validate all event payloads and callback results before acting on them. This sample trusts the `approved` and `reviewer` fields as-is.
 - **Log access control** — Restrict who can read the function's log group. Callback IDs and other sensitive values may appear in logs.
 - **Network controls** — If the function accesses private resources, deploy it in a VPC with appropriate security groups.
