@@ -3,7 +3,7 @@ Durable Functions + OpenTelemetry sample handler.
 
 A document-review workflow — extract-text -> summarize -> human-review -> publish
 — that suspends at a human-approval callback and resumes in a later Lambda
-invocation. Passing ``OtelPlugin()`` to ``@durable_execution`` unifies every
+invocation. Passing ``InvocationOtelPlugin()`` to ``@durable_execution`` unifies every
 invocation of the execution into a single distributed trace: one span per
 durable operation, with ``traceId`` / ``spanId`` stamped on every log record.
 
@@ -20,7 +20,7 @@ from aws_durable_execution_sdk_python import (
     durable_step,
 )
 from aws_durable_execution_sdk_python.types import WaitForCallbackContext
-from aws_durable_execution_sdk_python_otel import OtelPlugin
+from aws_durable_execution_sdk_python_otel import InvocationOtelPlugin
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -47,7 +47,7 @@ def publish(step_context, summary, approval):
     return {"status": "published"}
 
 
-@durable_execution(plugins=[OtelPlugin()])
+@durable_execution(plugins=[InvocationOtelPlugin()])
 def handler(event: dict, context: DurableContext) -> dict:
     extracted = context.step(extract_text(event["doc_id"]), name="extract-text")
     summary = context.step(summarize(extracted), name="summarize")

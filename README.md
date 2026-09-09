@@ -32,7 +32,7 @@ The execution runs across **at least two Lambda invocations**: the first runs `e
 ├── template.yaml                # SAM template (IaC): function, X-Ray, ADOT layer, alias
 ├── samconfig.toml               # SAM deploy config (region us-east-1, stack "durable-otel")
 ├── src/
-│   ├── index.py                 # Durable handler instrumented with OtelPlugin()
+│   ├── index.py                 # Durable handler instrumented with InvocationOtelPlugin()
 │   └── requirements.txt         # aws-durable-execution-sdk-python[-otel]
 └── test/
     └── run-evidence-test.sh     # End-to-end test that also collects reviewable evidence
@@ -172,19 +172,22 @@ If instead you see `Named operation spans found: (none)` or all log records shar
 
 ### Plugin options (not exercised by this sample)
 
-- `OtelPlugin(enrich_logger=False)` — disable automatic log stamping (default `True`)
-- `OtelPlugin(context_extractor=w3c_client_context_extractor)` — cross-service W3C context propagation
-- Supply a custom `TracerProvider`
+Options are passed via an `OtelPluginConfig` object:
+
+- `InvocationOtelPlugin(OtelPluginConfig(enrich_logger=False))` — disable automatic log stamping (default `True`)
+- `InvocationOtelPlugin(OtelPluginConfig(context_extractor=w3c_client_context_extractor))` — cross-service W3C context propagation
+- Supply a custom `TracerProvider` via `OtelPluginConfig(tracer_provider=...)`
+- `ExecutionOtelPlugin` is also available — same execution ancestor, but parents operation spans under Workflow instead of Invocation
 - Control trace volume with standard OpenTelemetry sampling (`OTEL_TRACES_SAMPLER`); this sample samples 100%
 
 ## Implementation Details
 
-The handler in [`src/index.py`](src/index.py) enables tracing with a single line — `OtelPlugin()` passed to the decorator:
+The handler in [`src/index.py`](src/index.py) enables tracing with a single line — `InvocationOtelPlugin()` passed to the decorator:
 
 ```python
-from aws_durable_execution_sdk_python_otel import OtelPlugin
+from aws_durable_execution_sdk_python_otel import InvocationOtelPlugin
 
-@durable_execution(plugins=[OtelPlugin()])
+@durable_execution(plugins=[InvocationOtelPlugin()])
 def handler(event: dict, context: DurableContext) -> dict:
     extracted = context.step(extract_text(event["doc_id"]), name="extract-text")
     summary   = context.step(summarize(extracted), name="summarize")

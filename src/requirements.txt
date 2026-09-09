@@ -1,2 +1,2 @@
-aws-durable-execution-sdk-python==1.7.0
-aws-durable-execution-sdk-python-otel==0.3.0
+aws-durable-execution-sdk-python==2.0.0
+aws-durable-execution-sdk-python-otel==1.0.0
